@@ -154,6 +154,7 @@ public slots:
 private:
 	void updateRenderingDataAccordingToActionsCommonCode(int meshid, const QList<MLRenderingAction*>& acts);
 	void updateRenderingDataAccordingToActionCommonCode(int meshid, MLRenderingAction* act);
+	void syncLayerDialogSidePanels();
 
 private slots:
 	void documentUpdateRequested();

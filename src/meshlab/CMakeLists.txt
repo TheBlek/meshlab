@@ -6,6 +6,7 @@ set(SOURCES
 	glarea.cpp
 	glarea_setting.cpp
 	layerDialog.cpp
+	layer_mesh_tree.cpp
 	main.cpp
 	mainwindow_Init.cpp
 	mainwindow_RunTime.cpp
@@ -31,6 +32,7 @@ set(HEADERS
 	glarea.h
 	glarea_setting.h
 	layerDialog.h
+	layer_mesh_tree.h
 	mainwindow.h
 	ml_default_decorators.h
 	ml_render_gui.h

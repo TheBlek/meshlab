@@ -288,21 +288,33 @@ void MainWindow::updateLayerDialog()
 		//GLA()->getPerDocGlobalRenderingData(projdt);
 		dtf[-1] = projdt;
 		layerDialog->updateTable(dtf);
-		layerDialog->updateLog(meshDoc()->Log);
-		layerDialog->updateDecoratorParsView();
-		MLRenderingData dt;
-		if (meshDoc()->mm() != NULL)
-		{
-			MLSceneGLSharedDataContext::PerMeshRenderingDataMap::iterator it = dtf.find(meshDoc()->mm()->id());
-			if (it != dtf.end())
-				layerDialog->updateRenderingParametersTab(meshDoc()->mm()->id(),*it);
-		}
-		if (globrendtoolbar != NULL)
-		{
-			shared->getRenderInfoPerMeshView(GLA()->context(), dtf);
-			globrendtoolbar->statusConsistencyCheck(dtf);
-		}
+		syncLayerDialogSidePanels();
 	}
+}
+
+void MainWindow::syncLayerDialogSidePanels()
+{
+	if ((layerDialog == NULL) || (meshDoc() == NULL) || (GLA() == NULL))
+		return;
+	MultiViewer_Container* mvc = currentViewContainer();
+	if (mvc == NULL)
+		return;
+	MLSceneGLSharedDataContext* shared = mvc->sharedDataContext();
+	if (shared == NULL)
+		return;
+
+	layerDialog->updateLog(meshDoc()->Log);
+	layerDialog->updateDecoratorParsView();
+	MLSceneGLSharedDataContext::PerMeshRenderingDataMap dtf;
+	shared->getRenderInfoPerMeshView(GLA()->context(), dtf);
+	if (meshDoc()->mm() != NULL)
+	{
+		MLSceneGLSharedDataContext::PerMeshRenderingDataMap::iterator it = dtf.find(meshDoc()->mm()->id());
+		if (it != dtf.end())
+			layerDialog->updateRenderingParametersTab(meshDoc()->mm()->id(),*it);
+	}
+	if (globrendtoolbar != NULL)
+		globrendtoolbar->statusConsistencyCheck(dtf);
 }
 
 void MainWindow::updateMenus()
@@ -2114,12 +2126,14 @@ bool MainWindow::importMesh(QString fileName)
 			std::list<std::string> unloadedTextures =
 					meshlab::loadMesh(fileName, pCurrentIOPlugin, prePar, meshList, masks, QCallBack);
 			saveRecentFileList(fileName);
-			updateLayerDialog();
 			for (MeshModel* mm : meshList) {
 				computeRenderingDataOnLoading(mm, false, nullptr);
 				if (! (mm->cm.textures.empty()))
 					updateTexture(mm->id());
+				if (layerDialog != nullptr)
+					layerDialog->refreshMeshRow(mm->id());
 			}
+			syncLayerDialogSidePanels();
 			QString warningString = pCurrentIOPlugin->warningMessageString();
 			if (unloadedTextures.size() > 0){
 				warningString += "\n\nThe following textures have not been loaded: \n";
@@ -2779,8 +2793,8 @@ void MainWindow::meshAdded(int mid)
 					}
 					shared->manageBuffers(mid);
 				}
-				//layerDialog->setVisible(meshDoc()->meshList.size() > 0);
-				updateLayerDialog();
+				if (layerDialog == nullptr || !layerDialog->insertMeshRow(mid, defdt))
+					updateLayerDialog();
 			}
 		}
 		

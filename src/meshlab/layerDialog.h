@@ -31,9 +31,11 @@
 #include <QGroupBox>
 #include <QCheckBox>
 #include <QTimer>
+#include <QMap>
 #include <common/parameters/rich_parameter_list.h>
 #include <common/ml_shared_data_context/ml_shared_data_context.h>
 #include "ml_render_gui.h"
+#include "layer_mesh_tree.h"
 
 
 
@@ -55,17 +57,6 @@ namespace Ui
     class layerDialog;
 }
 
-
-class MeshTreeWidgetItem : public QTreeWidgetItem
-{ 
-public:
-    MeshTreeWidgetItem(MeshModel* meshmodel,QTreeWidget* tree,MLRenderingToolbar* rendertoolbar);
-    ~MeshTreeWidgetItem();
-    void updateVisibilityIcon(bool isvisible);
-
-    MLRenderingToolbar* _rendertoolbar;
-    int _meshid;
-};
 
 class RasterTreeWidgetItem : public QTreeWidgetItem
 {
@@ -129,6 +120,8 @@ protected:
 
 public slots:
 	void updateTable(const MLSceneGLSharedDataContext::PerMeshRenderingDataMap& dtf);
+	bool insertMeshRow(int meshId, const MLRenderingData& dt);
+	bool refreshMeshRow(int meshId);
     void rasterItemClicked(QTreeWidgetItem * , int );
     void meshItemClicked(QTreeWidgetItem * , int );
     void showEvent ( QShowEvent * event );
@@ -178,6 +171,7 @@ private:
     void updatePerRasterItemVisibility();
 
     void updateProjectName(const QString& name);
+	MeshTreeWidgetItem* createConnectedMeshRow(MeshModel& mesh, const MLRenderingData& dt);
 
 	// state buttons
 	bool isRecording;
@@ -196,6 +190,7 @@ private:
 
     QTreeWidgetItem* _docitem;
     int _previd;
+	QMap<int, MeshTreeWidgetItem*> meshItems;
 	QGroupBox* _renderingtabcontainer;
 	QCheckBox* _applytovis;
 public:

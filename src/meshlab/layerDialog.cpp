@@ -31,7 +31,9 @@ $Log: stdpardialog.cpp,v $
 #include <QToolBar>
 #include <QActionGroup>
 #include <QDebug>
+#include <QFileInfo>
 #include <QFontMetrics>
+#include <QHeaderView>
 #include <QSettings>
 
 #include <common_gui/rich_parameter/rich_parameter_list_frame.h>
@@ -709,6 +711,7 @@ void LayerDialog::updateTable(const MLSceneGLSharedDataContext::PerMeshRendering
 	if (md == NULL)
 		return;
 
+	meshItems.clear();
 	ui->meshTreeWidget->clear();
 
 	ui->meshTreeWidget->header()->setSectionResizeMode(2, QHeaderView::Stretch);
@@ -720,7 +723,6 @@ void LayerDialog::updateTable(const MLSceneGLSharedDataContext::PerMeshRendering
 
 	updateProjectName(md->docLabel());
 
-	QList<QTreeWidgetItem*> itms;
 	for (MeshModel& mmd : md->meshIterator())
 	{
 		//Restore mesh visibility according to the current visibility map
@@ -735,24 +737,13 @@ void LayerDialog::updateTable(const MLSceneGLSharedDataContext::PerMeshRendering
 		MLSceneGLSharedDataContext::PerMeshRenderingDataMap::const_iterator rdit = dtf.find(mmd.id());
 		if (rdit != dtf.end())
 		{
-			MLRenderingSideToolbar* rendertb = new MLRenderingSideToolbar(mmd.id(),this);
-			rendertb->setIconSize(QSize(16,16));
-			rendertb->setAccordingToRenderingData((*rdit));
-			connect(rendertb,SIGNAL(updateRenderingDataAccordingToActions(int,const QList<MLRenderingAction*>&)),this,SLOT(updateRenderingDataAccordingToActions(int,const QList<MLRenderingAction*>&)));
-			connect(rendertb, SIGNAL(updateRenderingDataAccordingToAction(int,MLRenderingAction*)), this, SLOT(updateRenderingDataAccordingToAction(int,MLRenderingAction*)));
-			connect(rendertb,SIGNAL(activatedAction(MLRenderingAction*)),this,SLOT(actionActivated(MLRenderingAction*)));
-
-			MeshTreeWidgetItem* item = new MeshTreeWidgetItem(&mmd,ui->meshTreeWidget,rendertb);
-			item->setExpanded(expandedMap.value(qMakePair(item->_meshid,-1)));
-
-			addDefaultNotes(item,&mmd);
-			itms.push_back(item);
-			//Adding default annotations
+			MeshTreeWidgetItem* item = createConnectedMeshRow(mmd, *rdit);
+			if (item != nullptr)
+				item->setExpanded(expandedMap.value(qMakePair(item->_meshid,-1)));
 		}
 		else
 			throw MLException("Something bad happened! Mesh id has not been found in the rendermapmode map.");
 	}
-	_docitem->addChildren(itms);
 
 	// Delete any animation IDs no longer in the layer dialog
 	for (auto animIter = animMeshIDs.begin(); animIter != animMeshIDs.end(); )
@@ -805,6 +796,106 @@ void LayerDialog::updateTable(const MLSceneGLSharedDataContext::PerMeshRendering
 	}
 
 	updateTreeWidgetSizes(ui->rasterTreeWidget);
+}
+
+MeshTreeWidgetItem* LayerDialog::createConnectedMeshRow(MeshModel& mesh, const MLRenderingData& dt)
+{
+	MLRenderingSideToolbar* rendertb = new MLRenderingSideToolbar(mesh.id(), this);
+	rendertb->setIconSize(QSize(16, 16));
+	rendertb->setAccordingToRenderingData(dt);
+	connect(rendertb, SIGNAL(updateRenderingDataAccordingToActions(int,const QList<MLRenderingAction*>&)), this, SLOT(updateRenderingDataAccordingToActions(int,const QList<MLRenderingAction*>&)));
+	connect(rendertb, SIGNAL(updateRenderingDataAccordingToAction(int,MLRenderingAction*)), this, SLOT(updateRenderingDataAccordingToAction(int,MLRenderingAction*)));
+	connect(rendertb, SIGNAL(activatedAction(MLRenderingAction*)), this, SLOT(actionActivated(MLRenderingAction*)));
+
+	QFileInfo inf(mesh.label());
+	MeshTreeWidgetItem* item = meshlab::appendMeshLayerRow(
+		ui->meshTreeWidget,
+		mesh.id(),
+		mesh.label(),
+		inf.absoluteFilePath(),
+		mesh.isVisible(),
+		mesh.meshModified(),
+		rendertb);
+	if (item == nullptr) {
+		delete rendertb;
+		return nullptr;
+	}
+	item->_rendertoolbar = rendertb;
+	addDefaultNotes(item, &mesh);
+	meshItems.insert(mesh.id(), item);
+	return item;
+}
+
+bool LayerDialog::insertMeshRow(int meshId, const MLRenderingData& dt)
+{
+	if (!isVisible() || mw == nullptr || mw->GLA() == nullptr)
+		return false;
+	MeshDocument* md = mw->meshDoc();
+	if (md == nullptr)
+		return false;
+	MeshModel* mm = md->getMesh(meshId);
+	if (mm == nullptr)
+		return false;
+
+	if (meshItems.contains(meshId) || meshlab::findTopLevelMeshRow(ui->meshTreeWidget, meshId) != nullptr)
+		return refreshMeshRow(meshId);
+
+	ui->meshTreeWidget->header()->setSectionResizeMode(2, QHeaderView::Stretch);
+	ui->meshTreeWidget->header()->hide();
+
+	if (mw->GLA()->meshVisibilityMap.contains(meshId))
+		mm->setVisible(mw->GLA()->meshVisibilityMap.value(meshId));
+	else {
+		mw->GLA()->meshVisibilityMap[meshId] = true;
+		mm->setVisible(true);
+	}
+
+	MeshTreeWidgetItem* item = createConnectedMeshRow(*mm, dt);
+	if (item == nullptr)
+		return false;
+	item->setExpanded(expandedMap.value(qMakePair(item->_meshid, -1)));
+	updatePerMeshItemVisibility();
+	updatePerMeshItemSelectionStatus();
+	return true;
+}
+
+bool LayerDialog::refreshMeshRow(int meshId)
+{
+	if (!isVisible() || mw == nullptr)
+		return false;
+	MeshDocument* md = mw->meshDoc();
+	if (md == nullptr)
+		return false;
+	MeshModel* mm = md->getMesh(meshId);
+	if (mm == nullptr)
+		return false;
+
+	MeshTreeWidgetItem* item = meshItems.value(meshId, nullptr);
+	if (item == nullptr)
+		item = meshlab::findTopLevelMeshRow(ui->meshTreeWidget, meshId);
+	if (item == nullptr)
+		return false;
+
+	meshItems.insert(meshId, item);
+	item->updateVisibilityIcon(mm->isVisible());
+	item->setDisplayLabel(mm->label(), mm->meshModified());
+	QFileInfo inf(mm->label());
+	item->setToolTip(2, inf.absoluteFilePath());
+
+	while (item->childCount() > 0)
+		delete item->takeChild(0);
+	addDefaultNotes(item, mm);
+
+	if (item->_rendertoolbar != nullptr && mw->GLA() != nullptr && mw->currentViewContainer() != nullptr) {
+		MLSceneGLSharedDataContext* shared = mw->currentViewContainer()->sharedDataContext();
+		if (shared != nullptr) {
+			MLRenderingData dt;
+			shared->getRenderInfoPerMeshView(meshId, mw->GLA()->context(), dt);
+			item->_rendertoolbar->setAccordingToRenderingData(dt);
+		}
+	}
+	updatePerMeshItemSelectionStatus();
+	return true;
 }
 
 //Reconstruct the correct layout of the treewidget after updating the main table. It is necessary to keep the changing
@@ -1184,6 +1275,7 @@ void LayerDialog::updatePerRasterItemSelectionStatus()
 
 void LayerDialog::reset()
 {
+	meshItems.clear();
 	ui->meshTreeWidget->clear();
 	ui->decParsTree->clear();
 	ui->rasterTreeWidget->clear();
@@ -1357,38 +1449,6 @@ void LayerDialog::updateRenderingDataAccordingToAction( int meshid,MLRenderingAc
 	}
 	else
 		mw->updateRenderingDataAccordingToActionToAllVisibleLayers(act);
-}
-
-MeshTreeWidgetItem::MeshTreeWidgetItem(MeshModel* meshmodel,QTreeWidget* tree,MLRenderingToolbar* rendertoolbar):
-	QTreeWidgetItem(tree),_rendertoolbar(rendertoolbar)
-{
-	if (meshmodel != NULL) {
-		updateVisibilityIcon(meshmodel->isVisible());
-		setText(1, QString::number(meshmodel->id()));
-
-		QFileInfo inf = meshmodel->label();
-		QString meshName = inf.completeBaseName();
-		if (meshmodel->meshModified())
-			meshName += " *";
-		if (_rendertoolbar != NULL)
-			tree->setItemWidget(this,3,_rendertoolbar);
-
-		setText(2, meshName);
-		setToolTip(2, inf.absoluteFilePath());
-		_meshid = meshmodel->id();
-	}
-}
-
-MeshTreeWidgetItem::~MeshTreeWidgetItem()
-{
-}
-
-void MeshTreeWidgetItem::updateVisibilityIcon( bool isvisible )
-{
-	if(isvisible)
-		setIcon(0,QIcon(":/images/layer_eye_open.png"));
-	else
-		setIcon(0,QIcon(":/images/layer_eye_close.png"));
 }
 
 RasterTreeWidgetItem::RasterTreeWidgetItem(RasterModel *rasterModel)
