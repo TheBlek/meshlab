@@ -1,7 +1,12 @@
 name: BuildMeshLab
 
 on:
-  [push, pull_request]
+  # Branch pushes and pull requests only. Tag pushes are reserved for
+  # WindowsRelease so a release tag does not start this full matrix.
+  push:
+    branches:
+      - '**'
+  pull_request:
 
 env:
   QT_VERSION: 5.15.*
