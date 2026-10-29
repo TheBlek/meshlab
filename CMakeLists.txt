@@ -15,5 +15,11 @@ option(MESHLAB_BUILD_ONLY_LIBRARIES "Build only meshlab-common and plugins, excl
 option(MESHLAB_USE_DEFAULT_BUILD_AND_INSTALL_DIRS "If set to OFF, it expects that you set manually the binary and install directories" ON)
 
 option(MESHLAB_IS_NIGHTLY_VERSION "Nightly version of meshlab will be used instead of ML_VERSION" OFF)
+option(MESHLAB_BUILD_TESTS "Build MeshLab unit tests" OFF)
 
 add_subdirectory(src)
+
+if (MESHLAB_BUILD_TESTS)
+	enable_testing()
+	add_subdirectory(tests)
+endif()

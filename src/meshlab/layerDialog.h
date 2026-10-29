@@ -31,9 +31,11 @@
 #include <QGroupBox>
 #include <QCheckBox>
 #include <QTimer>
+#include <QMap>
 #include <common/parameters/rich_parameter_list.h>
 #include <common/ml_shared_data_context/ml_shared_data_context.h>
 #include "ml_render_gui.h"
+#include "layer_mesh_tree.h"
 
 
 
@@ -55,17 +57,6 @@ namespace Ui
     class layerDialog;
 }
 
-
-class MeshTreeWidgetItem : public QTreeWidgetItem
-{ 
-public:
-    MeshTreeWidgetItem(MeshModel* meshmodel,QTreeWidget* tree,MLRenderingToolbar* rendertoolbar);
-    ~MeshTreeWidgetItem();
-    void updateVisibilityIcon(bool isvisible);
-
-    MLRenderingToolbar* _rendertoolbar;
-    int _meshid;
-};
 
 class RasterTreeWidgetItem : public QTreeWidgetItem
 {
@@ -129,6 +120,12 @@ protected:
 
 public slots:
 	void updateTable(const MLSceneGLSharedDataContext::PerMeshRenderingDataMap& dtf);
+	bool insertMeshRow(int meshId, const MLRenderingData& dt);
+	bool refreshMeshRow(int meshId);
+	// Project name, animation-id cleanup, and the raster tree. Mesh rows stay
+	// incremental; this is the part of updateTable that is not per-mesh.
+	void updateDocumentChrome();
+	void forgetDocumentExpansion(MeshDocument* doc);
     void rasterItemClicked(QTreeWidgetItem * , int );
     void meshItemClicked(QTreeWidgetItem * , int );
     void showEvent ( QShowEvent * event );
@@ -164,20 +161,26 @@ private:
     QMenu *rasterMenu;
     QAction* addNewRasterAct;
     QAction* removeCurrentRasterAct;
-    //It stores if the treeWidgetItems are expanded or not
-    QMap< QPair<int ,int> ,  bool> expandedMap;
+    // Expansion per document, then (mesh id, tag). Mesh ids restart at 0 in
+    // every project, so a single (mesh, tag) key leaks across documents.
+    QMap<MeshDocument*, QMap<QPair<int, int>, bool>> expandedMap;
     
     //QList<QToolBar*> tobedel;
     void addDefaultNotes(QTreeWidgetItem * parent, MeshModel *meshModel);
     void updateColumnNumber(const QTreeWidgetItem * item);
     //QVector<QTreeWidgetItem*> tobedeleted;
     void updateExpandedMap(int meshId, int tagId, bool expanded);
+	bool storedExpansion(int meshId, int tagId) const;
+	QMap<QPair<int, int>, bool>* mutableExpansion();
+	void pruneAnimMeshIDs();
+	void rebuildRasterTree();
     void updatePerMeshItemSelectionStatus();
     void updatePerRasterItemSelectionStatus();
     void updatePerMeshItemVisibility();
     void updatePerRasterItemVisibility();
 
     void updateProjectName(const QString& name);
+	MeshTreeWidgetItem* createConnectedMeshRow(MeshModel& mesh, const MLRenderingData& dt);
 
 	// state buttons
 	bool isRecording;
@@ -196,6 +199,7 @@ private:
 
     QTreeWidgetItem* _docitem;
     int _previd;
+	QMap<int, MeshTreeWidgetItem*> meshItems;
 	QGroupBox* _renderingtabcontainer;
 	QCheckBox* _applytovis;
 public:

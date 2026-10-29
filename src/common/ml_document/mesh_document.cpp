@@ -240,6 +240,11 @@ void MeshDocument::setDocLabel(const QString& docLb)
 	documentLabel = docLb;
 }
 
+void MeshDocument::notifyMeshInfoChanged(int meshId)
+{
+	emit meshInfoChanged(meshId);
+}
+
 QString MeshDocument::docLabel() const
 {
 	return documentLabel;
@@ -307,6 +312,7 @@ MeshModel* MeshDocument::addNewMesh(
 
 	meshList.push_back(MeshModel(newMeshId(), fullPath,newlabel));
 	MeshModel& newMesh = meshList.back();
+	newMesh.setDocument(this);
 
 	if(setAsCurrent)
 		this->setCurrentMesh(newMesh.id());
