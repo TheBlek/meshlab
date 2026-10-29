@@ -122,6 +122,10 @@ public slots:
 	void updateTable(const MLSceneGLSharedDataContext::PerMeshRenderingDataMap& dtf);
 	bool insertMeshRow(int meshId, const MLRenderingData& dt);
 	bool refreshMeshRow(int meshId);
+	// Project name, animation-id cleanup, and the raster tree. Mesh rows stay
+	// incremental; this is the part of updateTable that is not per-mesh.
+	void updateDocumentChrome();
+	void forgetDocumentExpansion(MeshDocument* doc);
     void rasterItemClicked(QTreeWidgetItem * , int );
     void meshItemClicked(QTreeWidgetItem * , int );
     void showEvent ( QShowEvent * event );
@@ -157,14 +161,19 @@ private:
     QMenu *rasterMenu;
     QAction* addNewRasterAct;
     QAction* removeCurrentRasterAct;
-    //It stores if the treeWidgetItems are expanded or not
-    QMap< QPair<int ,int> ,  bool> expandedMap;
+    // Expansion per document, then (mesh id, tag). Mesh ids restart at 0 in
+    // every project, so a single (mesh, tag) key leaks across documents.
+    QMap<MeshDocument*, QMap<QPair<int, int>, bool>> expandedMap;
     
     //QList<QToolBar*> tobedel;
     void addDefaultNotes(QTreeWidgetItem * parent, MeshModel *meshModel);
     void updateColumnNumber(const QTreeWidgetItem * item);
     //QVector<QTreeWidgetItem*> tobedeleted;
     void updateExpandedMap(int meshId, int tagId, bool expanded);
+	bool storedExpansion(int meshId, int tagId) const;
+	QMap<QPair<int, int>, bool>* mutableExpansion();
+	void pruneAnimMeshIDs();
+	void rebuildRasterTree();
     void updatePerMeshItemSelectionStatus();
     void updatePerRasterItemSelectionStatus();
     void updatePerMeshItemVisibility();

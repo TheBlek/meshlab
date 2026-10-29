@@ -5,6 +5,7 @@
 #include "layer_mesh_tree.h"
 
 #include <QFileInfo>
+#include <QHash>
 
 MeshTreeWidgetItem::MeshTreeWidgetItem(
 	int meshid,
@@ -133,6 +134,71 @@ MeshTreeWidgetItem* findTopLevelMeshRow(QTreeWidget* tree, int meshId)
 			return item;
 	}
 	return nullptr;
+}
+
+int noteExpansionTag(const QString& column2Text)
+{
+	bool ok = false;
+	const int tag = column2Text.toInt(&ok);
+	if (!ok)
+		return 0;
+	return tag;
+}
+
+int noteExpansionLabelKey(const QString& column1Text, const QString& column2Text)
+{
+	const QString role = column1Text.isEmpty() ? column2Text : column1Text;
+	if (role == QLatin1String("File"))
+		return 1000000001;
+	if (role == QLatin1String("Vertices"))
+		return 1000000002;
+	if (role == QLatin1String("Edges"))
+		return 1000000003;
+	if (role == QLatin1String("Faces"))
+		return 1000000004;
+	if (role == QLatin1String("Textures:"))
+		return 1000000005;
+	if (role == QLatin1String("Custom Attrs:"))
+		return 1000000006;
+	// High bit keeps hashed custom rows away from counts and from the mesh
+	// row's tag (-1).
+	return int(qHash(role) & 0x0fffffff) | 0x50000000;
+}
+
+void rememberNoteExpansion(
+	QTreeWidgetItem* parent,
+	int meshId,
+	QMap<QPair<int, int>, bool>& expansion)
+{
+	if (parent == nullptr)
+		return;
+	for (int i = 0; i < parent->childCount(); ++i) {
+		QTreeWidgetItem* child = parent->child(i);
+		const bool expanded = child->isExpanded();
+		expansion.insert(qMakePair(meshId, noteExpansionTag(child->text(2))), expanded);
+		expansion.insert(
+			qMakePair(meshId, noteExpansionLabelKey(child->text(1), child->text(2))),
+			expanded);
+	}
+}
+
+void restoreNoteExpansion(
+	QTreeWidgetItem* parent,
+	int meshId,
+	const QMap<QPair<int, int>, bool>& expansion)
+{
+	if (parent == nullptr)
+		return;
+	for (int i = 0; i < parent->childCount(); ++i) {
+		QTreeWidgetItem* child = parent->child(i);
+		const QPair<int, int> labelKey = qMakePair(
+			meshId, noteExpansionLabelKey(child->text(1), child->text(2)));
+		const QPair<int, int> tagKey = qMakePair(meshId, noteExpansionTag(child->text(2)));
+		if (expansion.contains(labelKey))
+			child->setExpanded(expansion.value(labelKey));
+		else if (expansion.contains(tagKey))
+			child->setExpanded(expansion.value(tagKey));
+	}
 }
 
 } // namespace meshlab

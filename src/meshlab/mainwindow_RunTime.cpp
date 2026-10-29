@@ -317,6 +317,13 @@ void MainWindow::syncLayerDialogSidePanels()
 		globrendtoolbar->statusConsistencyCheck(dtf);
 }
 
+void MainWindow::finishIncrementalMeshPresentation()
+{
+	if (layerDialog != nullptr)
+		layerDialog->updateDocumentChrome();
+	syncLayerDialogSidePanels();
+}
+
 void MainWindow::updateMenus()
 {
 	
@@ -1643,6 +1650,7 @@ bool MainWindow::openProject(QString fileName, bool append)
 		if (!(meshList[i]->cm.textures.empty()))
 			updateTexture(meshList[i]->id());
 	}
+	finishIncrementalMeshPresentation();
 
 	meshDoc()->setBusy(false);
 
@@ -1738,6 +1746,7 @@ void MainWindow::newProject(const QString& projName)
 	MultiViewer_Container *mvcont = new MultiViewer_Container(*gpumeminfo,mwsettings.highprecision,mwsettings.perbatchprimitives,mwsettings.minpolygonpersmoothrendering,nullptr);
 	connect(&mvcont->meshDoc,SIGNAL(meshAdded(int)),this,SLOT(meshAdded(int)));
 	connect(&mvcont->meshDoc,SIGNAL(meshRemoved(int)),this,SLOT(meshRemoved(int)));
+	connect(&mvcont->meshDoc,SIGNAL(meshInfoChanged(int)),this,SLOT(meshInfoChanged(int)));
 	connect(&mvcont->meshDoc, SIGNAL(documentUpdated()), this, SLOT(documentUpdateRequested()));
 	connect(mvcont, SIGNAL(closingMultiViewerContainer()), this, SLOT(closeCurrentDocument()));
 	mdiarea->addSubWindow(mvcont);
@@ -1956,6 +1965,8 @@ void MainWindow::computeRenderingDataOnLoading(MeshModel* mm,bool isareload, MLR
 				}
 			}
 			shared->manageBuffers(mm->id());
+			if (layerDialog != nullptr)
+				layerDialog->refreshMeshRow(mm->id());
 		}
 	}
 }
@@ -2133,7 +2144,7 @@ bool MainWindow::importMesh(QString fileName)
 				if (layerDialog != nullptr)
 					layerDialog->refreshMeshRow(mm->id());
 			}
-			syncLayerDialogSidePanels();
+			finishIncrementalMeshPresentation();
 			QString warningString = pCurrentIOPlugin->warningMessageString();
 			if (unloadedTextures.size() > 0){
 				warningString += "\n\nThe following textures have not been loaded: \n";
@@ -2250,6 +2261,7 @@ void MainWindow::reloadAllMesh()
 		_currviewcontainer->updateAllDecoratorsForAllViewers();
 		_currviewcontainer->updateAllViewers();
 	}
+	finishIncrementalMeshPresentation();
 }
 
 void MainWindow::reload()
@@ -2296,6 +2308,7 @@ void MainWindow::reload()
 		_currviewcontainer->updateAllDecoratorsForAllViewers();
 		_currviewcontainer->updateAllViewers();
 	}
+	finishIncrementalMeshPresentation();
 }
 
 bool MainWindow::exportMesh(QString fileName, MeshModel* mod, const bool saveAllPossibleAttributes)
@@ -2763,6 +2776,17 @@ void MainWindow::showEvent(QShowEvent * event)
 	sendUsAMail();
 }
 
+static bool renderingDataActivatesPrimitive(const MLRenderingData& dt)
+{
+	for (MLRenderingData::PRIMITIVE_MODALITY pm = MLRenderingData::PRIMITIVE_MODALITY(0);
+		 pm < MLRenderingData::PR_ARITY;
+		 pm = MLRenderingData::next(pm)) {
+		if (dt.isPrimitiveActive(pm))
+			return true;
+	}
+	return false;
+}
+
 void MainWindow::meshAdded(int mid)
 {
 	MultiViewer_Container* mvc = currentViewContainer();
@@ -2785,6 +2809,14 @@ void MainWindow::meshAdded(int mid)
 				MeshModel* mm = meshDoc()->getMesh(mid);
 				if (mm != NULL)
 				{
+					MLPoliciesStandAloneFunctions::suggestedDefaultPerViewRenderingData(
+						mm, defdt, mwsettings.minpolygonpersmoothrendering);
+					// An empty mesh has no suggested primitive yet. Seed the side
+					// toolbar from the application default instead of a blank
+					// MLRenderingData; computeRenderingDataOnLoading replaces it
+					// once the file or filter has real geometry.
+					if (!renderingDataActivatesPrimitive(defdt))
+						defaultPerViewRenderingData(defdt);
 					for(int glarid = 0;glarid < mvc->viewerCounter();++glarid)
 					{
 						GLArea* ar = mvc->getViewer(glarid);
@@ -2795,10 +2827,28 @@ void MainWindow::meshAdded(int mid)
 				}
 				if (layerDialog == nullptr || !layerDialog->insertMeshRow(mid, defdt))
 					updateLayerDialog();
+				else
+					finishIncrementalMeshPresentation();
 			}
 		}
 		
 	}
+}
+
+void MainWindow::meshInfoChanged(int mid)
+{
+	// Label / modified updates must not rebuild every layer row.
+	static bool inMeshInfoChanged = false;
+	if (inMeshInfoChanged)
+		return;
+	struct ResetFlag {
+		bool& flag;
+		~ResetFlag() { flag = false; }
+	};
+	inMeshInfoChanged = true;
+	ResetFlag reset{inMeshInfoChanged};
+	if (layerDialog != nullptr)
+		layerDialog->refreshMeshRow(mid);
 }
 
 void MainWindow::meshRemoved(int mid)
@@ -3139,6 +3189,9 @@ void MainWindow::switchCurrentContainer(QMdiSubWindow * subwin)
 
 void MainWindow::closeCurrentDocument()
 {
+	MultiViewer_Container* closing = qobject_cast<MultiViewer_Container*>(sender());
+	if ((closing != nullptr) && (layerDialog != nullptr))
+		layerDialog->forgetDocumentExpansion(&closing->meshDoc);
 	_currviewcontainer = NULL;
 	layerDialog->setVisible(false);
 	if (mdiarea != NULL)

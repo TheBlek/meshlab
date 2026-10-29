@@ -26,6 +26,7 @@
 #include <QFileInfo>
 
 #include "mesh_model.h"
+#include "mesh_document.h"
 #include "../utilities/load_save.h"
 
 #include <wrap/gl/math.h>
@@ -36,7 +37,9 @@
 using namespace vcg;
 
 MeshModel::MeshModel(int id, const QString& fullFileName, const QString& labelName) :
-	visible(true)
+	visible(true),
+	modified(false),
+	_document(nullptr)
 {
 	/*glw.m = &(cm);*/
 	clear();
@@ -387,9 +390,30 @@ bool MeshModel::meshModified() const
 	return modified;
 }
 
+void MeshModel::setLabel(QString newName)
+{
+	if (_label == newName)
+		return;
+	_label = newName;
+	notifyInfoChanged();
+}
+
 void MeshModel::setMeshModified(bool b)
 {
+	if (modified == b)
+		return;
 	modified = b;
+	notifyInfoChanged();
+}
+
+void MeshModel::notifyInfoChanged()
+{
+	if (_document == nullptr)
+		return;
+	// Copies of a mesh must not refresh the live row.
+	if (_document->getMesh(static_cast<unsigned int>(_id)) != this)
+		return;
+	_document->notifyMeshInfoChanged(_id);
 }
 
 int MeshModel::dataMask() const

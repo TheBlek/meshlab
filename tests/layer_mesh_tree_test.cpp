@@ -6,6 +6,8 @@
 ****************************************************************************/
 
 #include <QtTest>
+#include <QMap>
+#include <QPair>
 #include <QToolBar>
 #include <QTreeWidget>
 
@@ -29,6 +31,9 @@ private slots:
 	void notesCanBeRefreshedWithoutDroppingTheRow();
 	void toolbarWidgetStaysOnTheNewRowOnly();
 	void nullTreeIsSafe();
+	void noteExpansionTagAndLabelKeys();
+	void noteExpansionSurvivesCountChangeAndNewEdgeRow();
+	void legacyTagZeroStillRestoresFileNote();
 
 private:
 	QTreeWidget* tree = nullptr;
@@ -144,6 +149,59 @@ void LayerMeshTreeTest::nullTreeIsSafe()
 	QCOMPARE(meshlab::appendMeshLayerRow(nullptr, 0, "a.ply", "", true, false, nullptr), nullptr);
 	QCOMPARE(meshlab::topLevelMeshRowCount(nullptr), 0);
 	QCOMPARE(meshlab::findTopLevelMeshRow(nullptr, 0), nullptr);
+}
+
+void LayerMeshTreeTest::noteExpansionTagAndLabelKeys()
+{
+	QCOMPARE(meshlab::noteExpansionTag(QStringLiteral("bunny.ply")), 0);
+	QCOMPARE(meshlab::noteExpansionTag(QStringLiteral("12")), 12);
+	QCOMPARE(meshlab::noteExpansionLabelKey(QStringLiteral("File"), QStringLiteral("a.ply")),
+		meshlab::noteExpansionLabelKey(QStringLiteral("File"), QStringLiteral("renamed.ply")));
+	QVERIFY(meshlab::noteExpansionLabelKey(QStringLiteral("Vertices"), QStringLiteral("1"))
+		!= meshlab::noteExpansionLabelKey(QStringLiteral("Faces"), QStringLiteral("1")));
+	QVERIFY(meshlab::noteExpansionLabelKey(QStringLiteral("Vertices"), QStringLiteral("1"))
+		!= meshlab::noteExpansionTag(QStringLiteral("1")));
+}
+
+void LayerMeshTreeTest::noteExpansionSurvivesCountChangeAndNewEdgeRow()
+{
+	MeshTreeWidgetItem* row =
+		meshlab::appendMeshLayerRow(tree, 4, "cloud.ply", "", true, false, nullptr);
+	meshlab::setMeshLayerBasicNotes(row, "cloud.ply", 10, 0, 3);
+	QCOMPARE(row->childCount(), 3);
+	row->child(1)->setExpanded(true); // Vertices
+
+	QMap<QPair<int, int>, bool> expansion;
+	meshlab::rememberNoteExpansion(row, 4, expansion);
+	meshlab::replaceMeshLayerBasicNotes(row, "cloud.ply", 5000, 8, 9000);
+	QCOMPARE(row->childCount(), 4); // File, Vertices, Edges, Faces
+	meshlab::restoreNoteExpansion(row, 4, expansion);
+
+	QTreeWidgetItem* vertices = nullptr;
+	QTreeWidgetItem* edges = nullptr;
+	for (int i = 0; i < row->childCount(); ++i) {
+		if (row->child(i)->text(1) == QLatin1String("Vertices"))
+			vertices = row->child(i);
+		if (row->child(i)->text(1) == QLatin1String("Edges"))
+			edges = row->child(i);
+	}
+	QVERIFY(vertices != nullptr);
+	QVERIFY(edges != nullptr);
+	QCOMPARE(vertices->text(2), QStringLiteral("5000"));
+	QVERIFY(vertices->isExpanded());
+	QVERIFY(!edges->isExpanded());
+}
+
+void LayerMeshTreeTest::legacyTagZeroStillRestoresFileNote()
+{
+	MeshTreeWidgetItem* row =
+		meshlab::appendMeshLayerRow(tree, 0, "a.ply", "", true, false, nullptr);
+	meshlab::setMeshLayerBasicNotes(row, "a.ply", 1, 0, 2);
+	QMap<QPair<int, int>, bool> expansion;
+	expansion.insert(qMakePair(0, 0), true);
+	meshlab::restoreNoteExpansion(row, 0, expansion);
+	QCOMPARE(row->child(0)->text(1), QStringLiteral("File"));
+	QVERIFY(row->child(0)->isExpanded());
 }
 
 QTEST_MAIN(LayerMeshTreeTest)

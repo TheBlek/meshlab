@@ -131,6 +131,7 @@ private slots:
 
 	void meshAdded(int mid);
 	void meshRemoved(int mid);
+	void meshInfoChanged(int mid);
 
 
 public slots:
@@ -155,6 +156,7 @@ private:
 	void updateRenderingDataAccordingToActionsCommonCode(int meshid, const QList<MLRenderingAction*>& acts);
 	void updateRenderingDataAccordingToActionCommonCode(int meshid, MLRenderingAction* act);
 	void syncLayerDialogSidePanels();
+	void finishIncrementalMeshPresentation();
 
 private slots:
 	void documentUpdateRequested();

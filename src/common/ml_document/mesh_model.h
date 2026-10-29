@@ -162,7 +162,8 @@ public:
 		if(!fi.isAbsolute()) qWarning("Someone is trying to put a non relative filename");
 		fullPathFileName = fi.absoluteFilePath();
 	}
-	void setLabel(QString newName) {_label=newName;}
+	void setLabel(QString newName);
+	void setDocument(MeshDocument* doc) { _document = doc; }
 
 	bool isVisible() const { return visible; }
 	void setVisible(bool vis = true) { visible = vis;}
@@ -210,6 +211,8 @@ private:
 	QString _label;
 	int _id;
 	bool modified;
+	MeshDocument* _document;
+	void notifyInfoChanged();
 
 	//this is an id used for meshes that are loaded from files
 	//that can store more than one mesh. For meshes loaded from

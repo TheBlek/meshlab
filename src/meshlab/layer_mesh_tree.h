@@ -10,6 +10,8 @@
 #define MESHLAB_LAYER_MESH_TREE_H
 
 #include <QIcon>
+#include <QMap>
+#include <QPair>
 #include <QString>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -64,6 +66,24 @@ void replaceMeshLayerBasicNotes(
 
 int topLevelMeshRowCount(const QTreeWidget* tree);
 MeshTreeWidgetItem* findTopLevelMeshRow(QTreeWidget* tree, int meshId);
+
+// Tag stored by the layer dialog for a note row. Non-numeric column 2
+// (file names) uses 0, matching QString::toInt's failure value.
+int noteExpansionTag(const QString& column2Text);
+
+// Stable key for a note row so expansion survives a count change
+// (Vertices "10" -> "10000") and an Edges row appearing.
+int noteExpansionLabelKey(const QString& column1Text, const QString& column2Text);
+
+void rememberNoteExpansion(
+	QTreeWidgetItem* parent,
+	int meshId,
+	QMap<QPair<int, int>, bool>& expansion);
+
+void restoreNoteExpansion(
+	QTreeWidgetItem* parent,
+	int meshId,
+	const QMap<QPair<int, int>, bool>& expansion);
 
 } // namespace meshlab
 

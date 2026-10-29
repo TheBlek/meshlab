@@ -129,6 +129,7 @@ public:
 	MeshDocumentStateData& meshDocStateData();
 	void setDocLabel(const QString& docLb);
 	QString docLabel() const;
+	void notifyMeshInfoChanged(int meshId);
 	QString pathName() const;
 	void setFileName(const QString& newFileName);
 
@@ -224,6 +225,7 @@ signals:
 
 	void meshAdded(int index);
 	void meshRemoved(int index);
+	void meshInfoChanged(int meshId);
 
 	///whenever the rasterList is changed
 	void rasterSetChanged();
