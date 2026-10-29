@@ -79,7 +79,39 @@ jobs:
           build-precision: single_precision
 
       - name: Deploy portable tree and NSIS installer
-        uses: ./.github/actions/2_deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          # choco installs NSIS under Program Files, but does not put makensis.exe
+          # on PATH for later steps. The upstream deploy script calls makensis.exe.
+          NSIS_BIN=""
+          for d in \
+            "/c/Program Files (x86)/NSIS" \
+            "/c/Program Files (x86)/NSIS/Bin" \
+            "/c/Program Files/NSIS" \
+            "/c/Program Files/NSIS/Bin"
+          do
+            if [ -f "$d/makensis.exe" ]; then
+              NSIS_BIN="$d"
+              break
+            fi
+          done
+          if [ -z "$NSIS_BIN" ]; then
+            echo "makensis.exe was not found after the NSIS install" >&2
+            find "/c/Program Files (x86)/NSIS" "/c/Program Files/NSIS" /c/ProgramData/chocolatey -iname 'makensis*' 2>/dev/null || true
+            exit 1
+          fi
+          export PATH="$NSIS_BIN:$PATH"
+          command -v makensis.exe
+          bash scripts/Windows/2_deploy.sh
+          shopt -s nullglob
+          installers=(packages/MeshLab*-windows*.exe)
+          if [ ${#installers[@]} -eq 0 ]; then
+            echo "NSIS did not produce packages/MeshLab*-windows*.exe" >&2
+            ls -la packages || true
+            exit 1
+          fi
+          ls -lh "${installers[@]}"
 
       - name: Package portable zip
         shell: bash
@@ -89,10 +121,6 @@ jobs:
             echo "Release tag is empty" >&2
             exit 1
           fi
-          echo "install tree:"
-          ls -la install | head -50
-          echo "packages:"
-          ls -la packages
           if STR_VERSION=$(./install/meshlab.exe --version | tr -d '\r'); then
             echo "meshlab --version: $STR_VERSION"
           else
@@ -109,9 +137,14 @@ jobs:
           echo "PORTABLE_NAME=$PORTABLE" >> "$GITHUB_ENV"
           echo "ARCH_NAME=$ARCH" >> "$GITHUB_ENV"
           tar.exe -a -c -f "$PORTABLE" -C install .
-          ls -lh packages/MeshLab*.exe "$PORTABLE"
-          test -s "$PORTABLE"
-          test -s packages/MeshLab*.exe
+          shopt -s nullglob
+          installers=(packages/MeshLab*-windows*.exe)
+          if [ ${#installers[@]} -eq 0 ] || [ ! -s "$PORTABLE" ]; then
+            echo "Missing installer or portable zip" >&2
+            ls -lh packages "$PORTABLE" || true
+            exit 1
+          fi
+          ls -lh "${installers[@]}" "$PORTABLE"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
