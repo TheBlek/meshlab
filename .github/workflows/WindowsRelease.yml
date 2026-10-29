@@ -1,0 +1,137 @@
+name: WindowsRelease
+
+# Windows x86_64 single-precision installer + portable zip, then a GitHub Release.
+# Packaging scripts are the upstream scripts/Windows/* NSIS flow.
+
+on:
+  push:
+    branches:
+      - cursor/windows-release-b736
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  QT_VERSION: 5.15.*
+  # main, including the merged incremental layer-dialog work (PR #1).
+  SOURCE_SHA: 69f2312616aac1b59991a3ad9c9fb011b4c88d7d
+  RELEASE_TAG: layer-dialog-incremental-2026-10-29
+
+jobs:
+  build_windows:
+    name: Windows x86_64 single-precision
+    runs-on: windows-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Record source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD
+          test "$(git rev-parse HEAD)" = "${{ env.SOURCE_SHA }}"
+
+      - name: Setup Environment
+        uses: ./.github/actions/0_setup
+        with:
+          qt-version: ${{ env.QT_VERSION }}
+          use-jurpel-qt-action: true
+
+      - name: Build
+        uses: ./.github/actions/1_build
+        with:
+          cache-path: src/external/downloads/*
+          cache-key: external-libraries-windows-release
+          build-precision: single_precision
+
+      - name: Deploy portable tree and NSIS installer
+        uses: ./.github/actions/2_deploy
+
+      - name: Package portable zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "install tree:"
+          ls -la install | head -50
+          echo "packages:"
+          ls -la packages
+          if STR_VERSION=$(./install/meshlab.exe --version | tr -d '\r'); then
+            echo "meshlab --version: $STR_VERSION"
+          else
+            STR_VERSION="MeshLab $(tr -d '[:space:]' < ML_VERSION)"
+            echo "meshlab --version failed, using ML_VERSION: $STR_VERSION"
+          fi
+          ML_VERSION=$(printf '%s\n' "$STR_VERSION" | awk '{print $2}' | tr -d '[:space:]')
+          if [ -z "$ML_VERSION" ]; then
+            ML_VERSION=$(tr -d '[:space:]' < ML_VERSION)
+          fi
+          ARCH=$(uname -m)
+          PORTABLE="MeshLab${ML_VERSION}-windows_${ARCH}-portable.zip"
+          echo "ML_VERSION=$ML_VERSION" >> "$GITHUB_ENV"
+          echo "PORTABLE_NAME=$PORTABLE" >> "$GITHUB_ENV"
+          echo "ARCH_NAME=$ARCH" >> "$GITHUB_ENV"
+          tar.exe -a -c -f "$PORTABLE" -C install .
+          ls -lh packages/MeshLab*.exe "$PORTABLE"
+          test -s "$PORTABLE"
+          test -s packages/MeshLab*.exe
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: meshlab-windows-x86_64
+          if-no-files-found: error
+          path: |
+            packages/MeshLab*.exe
+            MeshLab*-windows_*-portable.zip
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          NOTES_FILE=$(mktemp)
+          cat > "$NOTES_FILE" <<EOF
+          Windows x86_64 single-precision MeshLab built from main (\`${{ env.SOURCE_SHA }}\`).
+
+          This build includes the incremental layer-dialog insert fix from PR #1:
+          https://github.com/TheBlek/meshlab/pull/1
+
+          Assets:
+          - \`MeshLab${ML_VERSION}-windows_${ARCH_NAME}.exe\` — NSIS installer (unsigned)
+          - \`${PORTABLE_NAME}\` — portable zip (unsigned)
+
+          Signing certificates were not used. This is an unsigned build from the personal fork, suitable for a direct download.
+          EOF
+          if gh release view "${{ env.RELEASE_TAG }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "${{ env.RELEASE_TAG }}" \
+              --repo "${{ github.repository }}" \
+              --clobber \
+              packages/MeshLab*.exe \
+              "$PORTABLE_NAME"
+            gh release edit "${{ env.RELEASE_TAG }}" \
+              --repo "${{ github.repository }}" \
+              --draft=false \
+              --latest \
+              --notes-file "$NOTES_FILE"
+          else
+            gh release create "${{ env.RELEASE_TAG }}" \
+              --repo "${{ github.repository }}" \
+              --target "${{ env.SOURCE_SHA }}" \
+              --title "MeshLab ${ML_VERSION} Windows (layer-dialog incremental)" \
+              --notes-file "$NOTES_FILE" \
+              packages/MeshLab*.exe \
+              "$PORTABLE_NAME"
+          fi
+          gh release view "${{ env.RELEASE_TAG }}" --repo "${{ github.repository }}"

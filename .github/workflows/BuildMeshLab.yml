@@ -1,7 +1,15 @@
 name: BuildMeshLab
 
 on:
-  [push, pull_request]
+  # This release branch only adds a Windows packaging workflow. Ignore it so a
+  # push does not start the full five-OS matrix while that package is built.
+  push:
+    branches-ignore:
+      - cursor/windows-release-b736
+  pull_request:
+    paths-ignore:
+      - '.github/workflows/WindowsRelease.yml'
+      - '.github/workflows/BuildMeshLab.yml'
 
 env:
   QT_VERSION: 5.15.*
