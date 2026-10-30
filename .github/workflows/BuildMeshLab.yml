@@ -2,7 +2,7 @@ name: BuildMeshLab
 
 on:
   # Branch pushes and pull requests only. Tag pushes are reserved for
-  # WindowsRelease so a release tag does not start this full matrix.
+  # WindowsRelease so a release tag does not start these Windows builds.
   push:
     branches:
       - '**'
@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ['ubuntu-22.04', 'ubuntu-22.04-arm', 'macos-15-intel', 'macos-latest', 'windows-latest']
+        os: ['windows-latest']
         precision: [single_precision, double_precision]
     steps:
     - uses: actions/checkout@v4
