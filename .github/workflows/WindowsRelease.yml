@@ -1,0 +1,214 @@
+name: WindowsRelease
+
+# Windows x86_64 single-precision NSIS installer and portable zip.
+# Uses scripts/Windows/* (unsigned unless a certificate is configured elsewhere).
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag name'
+        required: true
+        type: string
+      ref:
+        description: 'Branch, tag, or SHA to build'
+        required: false
+        default: main
+        type: string
+      prerelease:
+        description: 'Mark the GitHub Release as a prerelease'
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - 'v*'
+      - 'MeshLab-*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+env:
+  QT_VERSION: 5.15.*
+
+jobs:
+  build_windows:
+    name: Windows x86_64 single-precision
+    runs-on: windows-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && (inputs.ref || 'main') || github.sha }}
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Resolve release parameters
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA=$(git rev-parse HEAD)
+          echo "Building $SHA"
+          echo "SOURCE_SHA=$SHA" >> "$GITHUB_ENV"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "RELEASE_TAG=${{ inputs.tag }}" >> "$GITHUB_ENV"
+            echo "REQUESTED_REF=${{ inputs.ref || 'main' }}" >> "$GITHUB_ENV"
+            echo "IS_PRERELEASE=${{ inputs.prerelease }}" >> "$GITHUB_ENV"
+          else
+            echo "RELEASE_TAG=${{ github.ref_name }}" >> "$GITHUB_ENV"
+            echo "REQUESTED_REF=${{ github.ref_name }}" >> "$GITHUB_ENV"
+            echo "IS_PRERELEASE=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Setup Environment
+        uses: ./.github/actions/0_setup
+        with:
+          qt-version: ${{ env.QT_VERSION }}
+          use-jurpel-qt-action: true
+
+      - name: Build
+        uses: ./.github/actions/1_build
+        with:
+          cache-path: src/external/downloads/*
+          cache-key: external-libraries-windows-release
+          build-precision: single_precision
+
+      - name: Deploy portable tree and NSIS installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          # choco installs NSIS under Program Files, but does not put makensis.exe
+          # on PATH for later steps. The upstream deploy script calls makensis.exe.
+          NSIS_BIN=""
+          for d in \
+            "/c/Program Files (x86)/NSIS" \
+            "/c/Program Files (x86)/NSIS/Bin" \
+            "/c/Program Files/NSIS" \
+            "/c/Program Files/NSIS/Bin"
+          do
+            if [ -f "$d/makensis.exe" ]; then
+              NSIS_BIN="$d"
+              break
+            fi
+          done
+          if [ -z "$NSIS_BIN" ]; then
+            echo "makensis.exe was not found after the NSIS install" >&2
+            find "/c/Program Files (x86)/NSIS" "/c/Program Files/NSIS" /c/ProgramData/chocolatey -iname 'makensis*' 2>/dev/null || true
+            exit 1
+          fi
+          export PATH="$NSIS_BIN:$PATH"
+          command -v makensis.exe
+          bash scripts/Windows/2_deploy.sh
+          shopt -s nullglob
+          installers=(packages/MeshLab*-windows*.exe)
+          if [ ${#installers[@]} -eq 0 ]; then
+            echo "NSIS did not produce packages/MeshLab*-windows*.exe" >&2
+            ls -la packages || true
+            exit 1
+          fi
+          ls -lh "${installers[@]}"
+
+      - name: Package portable zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${RELEASE_TAG}" ]; then
+            echo "Release tag is empty" >&2
+            exit 1
+          fi
+          if STR_VERSION=$(./install/meshlab.exe --version | tr -d '\r'); then
+            echo "meshlab --version: $STR_VERSION"
+          else
+            STR_VERSION="MeshLab $(tr -d '[:space:]' < ML_VERSION)"
+            echo "meshlab --version failed, using ML_VERSION file: $STR_VERSION"
+          fi
+          ML_VERSION=$(printf '%s\n' "$STR_VERSION" | awk '{print $2}' | tr -d '[:space:]')
+          if [ -z "$ML_VERSION" ]; then
+            ML_VERSION=$(tr -d '[:space:]' < ML_VERSION)
+          fi
+          ARCH=$(uname -m)
+          PORTABLE="MeshLab${ML_VERSION}-windows_${ARCH}-portable.zip"
+          echo "ML_VERSION=$ML_VERSION" >> "$GITHUB_ENV"
+          echo "PORTABLE_NAME=$PORTABLE" >> "$GITHUB_ENV"
+          echo "ARCH_NAME=$ARCH" >> "$GITHUB_ENV"
+          tar.exe -a -c -f "$PORTABLE" -C install .
+          shopt -s nullglob
+          installers=(packages/MeshLab*-windows*.exe)
+          if [ ${#installers[@]} -eq 0 ] || [ ! -s "$PORTABLE" ]; then
+            echo "Missing installer or portable zip" >&2
+            ls -lh packages "$PORTABLE" || true
+            exit 1
+          fi
+          ls -lh "${installers[@]}" "$PORTABLE"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: meshlab-windows-x86_64
+          if-no-files-found: error
+          path: |
+            packages/MeshLab*.exe
+            MeshLab*-windows_*-portable.zip
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          NOTES_FILE=$(mktemp)
+          cat > "$NOTES_FILE" <<EOF
+          Windows x86_64 single-precision MeshLab.
+
+          Built from commit \`${SOURCE_SHA}\` (ref \`${REQUESTED_REF}\`).
+
+          Assets:
+          - \`MeshLab${ML_VERSION}-windows_${ARCH_NAME}.exe\` — NSIS installer (unsigned)
+          - \`${PORTABLE_NAME}\` — portable zip (unsigned)
+          EOF
+          if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              --repo "${{ github.repository }}" \
+              --clobber \
+              packages/MeshLab*.exe \
+              "$PORTABLE_NAME"
+            if [ "$IS_PRERELEASE" = "true" ]; then
+              gh release edit "$RELEASE_TAG" \
+                --repo "${{ github.repository }}" \
+                --draft=false \
+                --prerelease \
+                --title "MeshLab ${ML_VERSION} Windows (${RELEASE_TAG})" \
+                --notes-file "$NOTES_FILE"
+            else
+              gh release edit "$RELEASE_TAG" \
+                --repo "${{ github.repository }}" \
+                --draft=false \
+                --prerelease=false \
+                --latest \
+                --title "MeshLab ${ML_VERSION} Windows (${RELEASE_TAG})" \
+                --notes-file "$NOTES_FILE"
+            fi
+          elif [ "$IS_PRERELEASE" = "true" ]; then
+            gh release create "$RELEASE_TAG" \
+              --repo "${{ github.repository }}" \
+              --target "$SOURCE_SHA" \
+              --prerelease \
+              --title "MeshLab ${ML_VERSION} Windows (${RELEASE_TAG})" \
+              --notes-file "$NOTES_FILE" \
+              packages/MeshLab*.exe \
+              "$PORTABLE_NAME"
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "${{ github.repository }}" \
+              --target "$SOURCE_SHA" \
+              --title "MeshLab ${ML_VERSION} Windows (${RELEASE_TAG})" \
+              --notes-file "$NOTES_FILE" \
+              packages/MeshLab*.exe \
+              "$PORTABLE_NAME"
+          fi
+          gh release view "$RELEASE_TAG" --repo "${{ github.repository }}"
